@@ -1,0 +1,103 @@
+name: itch-deploy
+
+# Deploys a game directly to itch.io
+# Please read the README.md attached for instructions
+#
+# Tidied it up a bit by Framebuffer
+#   https://framebuffer.xyz
+# Original from Bitlytic
+#   https://github.com/Bitlytic
+# Modified from solution found on:
+#   https://news.ycombinator.com/item?id=36466698
+
+# Define what triggers the action
+# In this case: on push, if one of the files named in paths changes
+on: push
+
+env:
+  WORKING_DIRECTORY: .
+  CREATE_EXPORTS: 'false'
+  GODOT_VERSION: '4.3'
+
+jobs:
+  setup:
+    # =========== WARNING ==========
+    # This is where you choose where to look for new commits.
+    #
+    # Right now, it's configured to look for new commits on the 'main' branch.
+    #
+    # If you have a different name for your main, like 'master'
+    # or you want to check for changes elsewhere,
+    # please change this here:
+    # -----------------------------v
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v3
+
+      - name: LS
+        run: ls -la
+    
+      # change or remove according to your needs
+      - name: Delete iOS icons
+        run: rm -rf $WORKING_DIRECTORY/AppIcons
+      
+      # change or remove according to your needs
+      - name: Create export directory
+        run: mkdir html5
+
+      - name: Cache Godot files
+        id: cache-godot
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.local/share/godot/**
+            /usr/local/bin/godot
+            ~/.config/godot/**
+          key: ${{ runner.os }}-godot-$GODOT_VERSION
+  
+      - name: Download and config Godot Engine linux server and templates
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/$GODOT_VERSION-stable/Godot_v$GODOT_VERSION-stable_export_templates.tpz
+          wget -q https://github.com/godotengine/godot/releases/download/$GODOT_VERSION-stable/Godot_v$GODOT_VERSION-stable_linux.x86_64.zip 
+          mkdir ~/.cache
+          mkdir -p ~/.config/godot
+          mkdir -p ~/.local/share/godot/export_templates/$GODOT_VERSION.stable
+          unzip Godot_v$GODOT_VERSION-stable_linux.x86_64.zip 
+          mv Godot_v$GODOT_VERSION-stable_linux.x86_64 /usr/local/bin/godot
+          unzip Godot_v$GODOT_VERSION-stable_export_templates.tpz
+          mv templates/* ~/.local/share/godot/export_templates/$GODOT_VERSION.stable
+
+          rm -f Godot_v$GODOT_VERSION-stable_linux.x86_64.zip Godot_v$GODOT_VERSION-stable_export_templates.tpz
+
+          sudo apt install libxcursor-dev
+          sudo apt install libxinerama-dev
+          sudo apt install libxrandr-dev
+          sudo apt install libxi6
+          sudo apt install libgl1
+          export DISPLAY=":0"
+          godot --version
+      - name: Export
+        shell: bash
+        run: |
+          mkdir -p build/html
+          ls -la
+          godot --headless --export-release Web ./build/html/index.html
+          cd build
+          ls -la
+          cd html
+          ls -la
+
+      # Uploads to itch.io
+      #   more info here https://github.com/dulvui/itchio-butler-upload
+      - name: Upload to itch.io
+        uses: Kwpa/itchio-butler-upload@v0.0.2
+        with:
+          working-directory: build/html
+          api-key: ${{ secrets.ITCHAPI }}
+          user: ${{ secrets.USERNAME }}
+          game: ${{ secrets.GAMENAME }}
+          channel: html5
